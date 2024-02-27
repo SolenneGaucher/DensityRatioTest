@@ -1,0 +1,1470 @@
+> rm(list=ls())
+> set.seed(0)
+> setwd("/workdir2/solenne.gaucher/FlowCytometry")
+> #setwd("~/Desktop/Recherche/postdoc/FlowCyto/SimulationsV2")
+> 
+> # Load packages
+> library(doParallel)
+Le chargement a nécessité le package : foreach
+Le chargement a nécessité le package : iterators
+Le chargement a nécessité le package : parallel
+> library(partykit)
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+> library(foreach)
+> library(lubridate)
+
+Attachement du package : ‘lubridate’
+
+Les objets suivants sont masqués depuis ‘package:base’:
+
+    date, intersect, setdiff, union
+
+> 
+> ################################ Parameters ############################
+> n_sample_part <- 12 # 12 samples are used for choosing the partition
+> cell_choice <- c(2, 6, 8, 9)
+> theta_choice <-  c(0, exp(seq(log(0.001), log(0.3), length.out = 40)))
+> n_synth <- 10 # number synthetic datasets created from each sample at test time
+> B_iterations <- 500
+> alpha_choice <- c(0, 0.003125, 0.00625, 0.0125, 0.025, 0.05)
+> alpha <- 0.5
+> 
+> ################################ Load and pre-process HIPC data ############################
+> lab_names <- c("W2","FTV","IU","D54","O0","pM","pw")
+> data_df <- data.frame(matrix(ncol = 5+7, nrow = 0))
+> colnames(data_df) <- c("patient", "unique_patient", "replicate", "lab", "cell_type", 
++                        "CCR7","CD4","CD45RA","CD3","HLADR","CD38","CD8")
+> unique_pat <- 1
+> for (lab in lab_names){
++   for (pat in 1:3){
++     for (replicate in 1:3){
++       if (file.exists(paste("data/HIPC/", lab,"_", 3*(pat-1) + replicate, "_values.csv", sep= ""))){
++         data_pat <- read.csv(paste("data/HIPC/", lab,"_", 3*(pat-1) + replicate, "_values.csv", sep= ""))[,2:8]
++         data_pat$cell_type <- read.csv(paste("data/HIPC/", lab,"_", 3*(pat-1) + replicate, "_clust.csv", sep= ""))[, 2]
++         data_pat$cell_type <- as.factor(data_pat$cell_type)
++         data_pat$patient <- pat
++         data_pat$patient <- as.factor(data_pat$patient)
++         data_pat$unique_patient <- unique_pat
++         data_pat$replicate <- replicate
++         data_pat$replicate <- as.factor(data_pat$replicate)
++         data_pat$lab <- lab
++         data_pat$lab <- as.factor(data_pat$lab)
++         data_df <- rbind(data_df, data_pat)
++         print(paste("lab : ", lab, ", pat : ", 3*(pat-1) + replicate, ", sample size : ", nrow(data_pat)))
++         unique_pat <- unique_pat + 1
++       }
++     }
++   }
++ }
+[1] "lab :  W2 , pat :  1 , sample size :  31342"
+[1] "lab :  W2 , pat :  2 , sample size :  37260"
+[1] "lab :  W2 , pat :  3 , sample size :  35541"
+[1] "lab :  W2 , pat :  4 , sample size :  32273"
+[1] "lab :  W2 , pat :  5 , sample size :  32258"
+[1] "lab :  W2 , pat :  6 , sample size :  38483"
+[1] "lab :  W2 , pat :  7 , sample size :  33992"
+[1] "lab :  W2 , pat :  8 , sample size :  33936"
+[1] "lab :  W2 , pat :  9 , sample size :  33960"
+[1] "lab :  FTV , pat :  1 , sample size :  21900"
+[1] "lab :  FTV , pat :  2 , sample size :  22254"
+[1] "lab :  FTV , pat :  3 , sample size :  22933"
+[1] "lab :  FTV , pat :  4 , sample size :  18692"
+[1] "lab :  FTV , pat :  5 , sample size :  19680"
+[1] "lab :  FTV , pat :  6 , sample size :  15880"
+[1] "lab :  FTV , pat :  7 , sample size :  18625"
+[1] "lab :  FTV , pat :  8 , sample size :  15927"
+[1] "lab :  FTV , pat :  9 , sample size :  15544"
+[1] "lab :  IU , pat :  1 , sample size :  21438"
+[1] "lab :  IU , pat :  2 , sample size :  44944"
+[1] "lab :  IU , pat :  3 , sample size :  45853"
+[1] "lab :  IU , pat :  4 , sample size :  46021"
+[1] "lab :  IU , pat :  5 , sample size :  45949"
+[1] "lab :  IU , pat :  6 , sample size :  45045"
+[1] "lab :  IU , pat :  7 , sample size :  44681"
+[1] "lab :  IU , pat :  8 , sample size :  43909"
+[1] "lab :  IU , pat :  9 , sample size :  44027"
+[1] "lab :  D54 , pat :  1 , sample size :  29277"
+[1] "lab :  D54 , pat :  2 , sample size :  50928"
+[1] "lab :  D54 , pat :  3 , sample size :  51312"
+[1] "lab :  D54 , pat :  4 , sample size :  44376"
+[1] "lab :  D54 , pat :  5 , sample size :  42932"
+[1] "lab :  D54 , pat :  6 , sample size :  42601"
+[1] "lab :  D54 , pat :  7 , sample size :  45150"
+[1] "lab :  D54 , pat :  8 , sample size :  44914"
+[1] "lab :  D54 , pat :  9 , sample size :  45000"
+[1] "lab :  O0 , pat :  1 , sample size :  55789"
+[1] "lab :  O0 , pat :  2 , sample size :  41018"
+[1] "lab :  O0 , pat :  3 , sample size :  66249"
+[1] "lab :  O0 , pat :  4 , sample size :  52307"
+[1] "lab :  O0 , pat :  5 , sample size :  52295"
+[1] "lab :  O0 , pat :  6 , sample size :  52557"
+[1] "lab :  O0 , pat :  7 , sample size :  44429"
+[1] "lab :  O0 , pat :  8 , sample size :  44112"
+[1] "lab :  O0 , pat :  9 , sample size :  43725"
+[1] "lab :  pM , pat :  1 , sample size :  17453"
+[1] "lab :  pM , pat :  2 , sample size :  36191"
+[1] "lab :  pM , pat :  3 , sample size :  36054"
+[1] "lab :  pM , pat :  4 , sample size :  44664"
+[1] "lab :  pM , pat :  5 , sample size :  42478"
+[1] "lab :  pM , pat :  6 , sample size :  41842"
+[1] "lab :  pM , pat :  7 , sample size :  42394"
+[1] "lab :  pM , pat :  8 , sample size :  42545"
+[1] "lab :  pM , pat :  9 , sample size :  41237"
+[1] "lab :  pw , pat :  2 , sample size :  102888"
+[1] "lab :  pw , pat :  3 , sample size :  88584"
+[1] "lab :  pw , pat :  4 , sample size :  99076"
+[1] "lab :  pw , pat :  5 , sample size :  112318"
+[1] "lab :  pw , pat :  6 , sample size :  102178"
+[1] "lab :  pw , pat :  7 , sample size :  74943"
+[1] "lab :  pw , pat :  8 , sample size :  81226"
+[1] "lab :  pw , pat :  9 , sample size :  78216"
+> 
+> ### Scale data to [0,1]**7 ###
+> data_df$unique_patient <- as.factor(data_df$unique_patient)
+> data_df[, c("CCR7","CD4","CD45RA","CD3","HLADR","CD38","CD8")] <- apply(data_df[,c("CCR7","CD4","CD45RA","CD3","HLADR","CD38","CD8")], MARGIN = 2,
++                                                                         FUN = function(X) (X - mean(X)))
+> data_df[, c("CCR7","CD4","CD45RA","CD3","HLADR","CD38","CD8")] <- asinh(data_df[, c("CCR7","CD4","CD45RA","CD3","HLADR","CD38","CD8")])
+> data_df[, c("CCR7","CD4","CD45RA","CD3","HLADR","CD38","CD8")] <- apply(data_df[,c("CCR7","CD4","CD45RA","CD3","HLADR","CD38","CD8")], MARGIN = 2, 
++                                                                         FUN = function(X) (X - min(X))/(range(X)[2]- range(X)[1]))
+> 
+> ################################ For parallelization ############################
+> n.cores <- parallel::detectCores() - 1
+> my.cluster <- parallel::makeCluster(
++   n.cores, 
++   type = "PSOCK",
++   outfile = ""
++ )
+starting worker pid=1411188 on localhost:11613 at 11:11:00.234
+starting worker pid=1411215 on localhost:11613 at 11:11:00.239
+starting worker pid=1411172 on localhost:11613 at 11:11:00.250
+starting worker pid=1411206 on localhost:11613 at 11:11:00.253
+starting worker pid=1411168 on localhost:11613 at 11:11:00.259
+starting worker pid=1411205 on localhost:11613 at 11:11:00.277
+starting worker pid=1411218 on localhost:11613 at 11:11:00.278
+starting worker pid=1411173 on localhost:11613 at 11:11:00.285
+starting worker pid=1411194 on localhost:11613 at 11:11:00.294
+starting worker pid=1411211 on localhost:11613 at 11:11:00.298
+starting worker pid=1411203 on localhost:11613 at 11:11:00.317
+starting worker pid=1411213 on localhost:11613 at 11:11:00.323
+starting worker pid=1411210 on localhost:11613 at 11:11:00.332
+starting worker pid=1411199 on localhost:11613 at 11:11:00.336
+starting worker pid=1411185 on localhost:11613 at 11:11:00.347
+starting worker pid=1411221 on localhost:11613 at 11:11:00.364
+starting worker pid=1411195 on localhost:11613 at 11:11:00.369
+starting worker pid=1411184 on localhost:11613 at 11:11:00.380
+starting worker pid=1411208 on localhost:11613 at 11:11:00.393
+starting worker pid=1411175 on localhost:11613 at 11:11:00.395
+starting worker pid=1411169 on localhost:11613 at 11:11:00.399
+starting worker pid=1411209 on localhost:11613 at 11:11:00.406
+starting worker pid=1411204 on localhost:11613 at 11:11:00.410
+starting worker pid=1411189 on localhost:11613 at 11:11:00.410
+starting worker pid=1411183 on localhost:11613 at 11:11:00.419
+starting worker pid=1411174 on localhost:11613 at 11:11:00.422
+starting worker pid=1411202 on localhost:11613 at 11:11:00.433
+starting worker pid=1411207 on localhost:11613 at 11:11:00.436
+starting worker pid=1411201 on localhost:11613 at 11:11:00.438
+starting worker pid=1411182 on localhost:11613 at 11:11:00.443
+starting worker pid=1411190 on localhost:11613 at 11:11:00.445
+starting worker pid=1411214 on localhost:11613 at 11:11:00.449
+starting worker pid=1411187 on localhost:11613 at 11:11:00.454
+starting worker pid=1411196 on localhost:11613 at 11:11:00.455
+starting worker pid=1411171 on localhost:11613 at 11:11:00.465
+starting worker pid=1411192 on localhost:11613 at 11:11:00.466
+starting worker pid=1411181 on localhost:11613 at 11:11:00.467
+starting worker pid=1411177 on localhost:11613 at 11:11:00.473
+starting worker pid=1411178 on localhost:11613 at 11:11:00.479
+starting worker pid=1411212 on localhost:11613 at 11:11:00.482
+starting worker pid=1411198 on localhost:11613 at 11:11:00.492
+starting worker pid=1411170 on localhost:11613 at 11:11:00.496
+starting worker pid=1411193 on localhost:11613 at 11:11:00.497
+starting worker pid=1411217 on localhost:11613 at 11:11:00.501
+starting worker pid=1411179 on localhost:11613 at 11:11:00.504
+starting worker pid=1411167 on localhost:11613 at 11:11:00.504
+starting worker pid=1411186 on localhost:11613 at 11:11:00.508
+starting worker pid=1411220 on localhost:11613 at 11:11:00.513
+starting worker pid=1411216 on localhost:11613 at 11:11:00.514
+starting worker pid=1411180 on localhost:11613 at 11:11:00.518
+starting worker pid=1411200 on localhost:11613 at 11:11:00.524
+starting worker pid=1411191 on localhost:11613 at 11:11:00.530
+starting worker pid=1411176 on localhost:11613 at 11:11:00.534
+starting worker pid=1411197 on localhost:11613 at 11:11:00.579
+starting worker pid=1411219 on localhost:11613 at 11:11:00.601
+> doParallel::registerDoParallel(cl = my.cluster)
+> 
+> ############################################################
+> print(paste("We begin the experiment, time is ", now()))
+[1] "We begin the experiment, time is  2024-02-18 11:11:00"
+> for (chosen_cell in cell_choice){
++   # label Y = 1 if cell == chosen_cell, 0 otherwise
++   data_chosen_cell <- data_df
++   data_chosen_cell$cell_type <- 1*(data_chosen_cell$cell_type == chosen_cell)
++   names(data_chosen_cell)[names(data_chosen_cell) == 'cell_type'] <- "Y"
++   
++   res_cell <- foreach (id = unique(data_chosen_cell$unique_patient), .combine=rbind) %dopar%{
++     # conduct the experiment one test sample at a time
++     source("utils/user_defined_split.R")
++     source("utils/aux.R")
++     source("utils/test_dr.R")
++     source("utils/part_choice.R")
++     library(foreach)
++     
++     start <- lubridate::now()
++     
++     data_test <- data_chosen_cell[data_chosen_cell$unique_patient == id,]
++     n_test <- nrow(data_test)
++     data_train <- data_chosen_cell[data_chosen_cell$unique_patient != id,]
++     
++     # Split data_train for partition and estimation
++     id_part <- sample(unique(data_train$unique_patient), n_sample_part)
++     data_part <- data_train[data_train$unique_patient %in% id_part,]
++     data_est <- data_train[!data_train$unique_patient %in% id_part, ]
++     
++     n1_part <- sum(data_part$Y)
++     n0_part <- nrow(data_part) - n1_part
++     n1_est <- sum(data_est$Y)
++     n0_est <- nrow(data_est) - n1_est
++     
++     # Define the parameters for growing the partition sequence
++     Kmax <- 15
++     u <- log(4*Kmax/alpha)
++     t <- log(2/alpha)
++     epsilon0 = max(3*u/n0_part, t/n_test)
++     epsilon1 = max(sqrt(3*u/n1_part), epsilon0)
++     parms_part = list(epsilon0 = epsilon0, epsilon1 = epsilon1, n0 = n0_part, n1 = n1_part)
++     
++     # Choose the partition sequence using respectively the density ratio criteria and the gini id
++     full_tree <- rpart::rpart(Y ~ CCR7 + CD4 + CD45RA + CD3 + HLADR + CD38 + CD8, data = data_part,
++                               method = method_dr(), parms = parms_part, cp = 0, maxdepth = 10, minbucket = sqrt(n1_part))
++     pruned_tree <- prune_dr(full_tree, data_part, parms_part, Kmin = 10)
++     partition <- as.party(pruned_tree$pruned_tree)
++     
++     # Calibrate the test
++     # Split data: half for computing bootstrap thresholds, half for validation
++     id_thr <- sample(unique(data_est$unique_patient), floor(length(unique(data_est$unique_patient))/2))
++     data_thr <- data_est[data_est$unique_patient %in% id_thr,]
++     data_val <- data_est[!data_est$unique_patient %in% id_thr, ]
++     
++     # Compute the quantiles of the test statistic for the different values ofalpha_choice_choice
++     u <- log(4*Kmax/alpha)
++     t <- log(2/alpha)
++     epsilon0 = max(3*u/n0_est, t/n_test)
++     epsilon1 = max(sqrt(3*u/n1_est),epsilon0)
++     parms_est = list(epsilon0 = epsilon0, epsilon1 = epsilon1, n0 = n0_est, n1 = n1_est,
++                      u = u, t = t, n_test = n_test)
++     threshold <- quantile_dr_bootstrap(data_thr, partition, parms_est, B_iterations, alpha_choice,
++                                        bootstrap_slice = data_thr$unique_patient)
++     
++     # Select a quantile best_alpha so that the test has empirical level 0 on validation set
++     power <- rep(0, length(alpha_choice))
++     for (id_val in unique(data_val$unique_patient)){
++       data_one_val <- data_val[data_val$unique_patient == id_val & data_val$Y == 0,]
++       data_one_val <- data_one_val[sample(nrow(data_one_val), n_test, replace = (nrow(data_one_val) < n_test)),]
++       power <- power + test_dr_bootstrap(data_thr, data_one_val, partition, parms_est, threshold)
++     }
++     if (power[1] > 0){
++       best_alpha <- 0
++     }else{
++       best_alpha <- alpha_choice[max(which(power == 0))]
++     }
++     # Do the test!
++     # Re-estimate the statistics and threshold
++     threshold <- quantile_dr_bootstrap(data_est, partition, parms_est, B_iterations, best_alpha,
++                                        bootstrap_slice = data_est$unique_patient)
++     data_test_0 <- data_test[data_test$Y == 0, ]
++     data_test_1 <- data_test[data_test$Y == 1, ]
++     res_id <- foreach (theta = theta_choice, .combine=rbind) %do% {
++       reject <- 0
++       for (r in 1:n_synth){
++         if (as.integer(theta*n_test) > 0){
++           data_test <- rbind(data_test_0[sample(nrow(data_test_0), n_test - as.integer(theta*n_test), 
++                                                 replace = (nrow(data_test_0) < n_test - as.integer(theta*n_test))), ], 
++                              data_test_1[sample(nrow(data_test_1), as.integer(theta*n_test),
++                                                 replace = (nrow(data_test_1) < as.integer(theta*n_test))), ])
++         }else{
++           data_test <- data_test_0[sample(nrow(data_test_0), n_test, replace = TRUE), ]
++         }
++         reject <- reject + test_dr_bootstrap(data_est, data_test, partition, parms_est, threshold)
++       }
++       return(data.frame(id = id, theta = theta, cell = chosen_cell, best_alpha = best_alpha, power = reject/n_synth))
++     }
++     saveRDS(res_id, paste("results/HIPC_BDRT/", chosen_cell, "_", id, ".rds", sep = ""))
++     print(paste("Computation done for cell :", chosen_cell, ", with id ", id))
++     print(lubridate::now() - start)
++     print("")
++     print("")
++     return(res_id)
++   }
++   print(paste("All computations done for cell ", chosen_cell))
++   saveRDS(res_cell, paste("results/HIPC_BDRT/", chosen_cell, "tot.rds", sep = ""))
++   print(paste("All computations for cell ", chosen_cell, " have been saved.s"))
++ }
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : grid
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : libcoin
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+Le chargement a nécessité le package : mvtnorm
+[1] "Computation done for cell : 2 , with id  32"
+Time difference of 4.218384 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  30"
+Time difference of 4.371778 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  11"
+Time difference of 4.383929 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  46"
+Time difference of 4.414238 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  48"
+Time difference of 4.427906 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  23"
+Time difference of 4.435116 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  26"
+Time difference of 4.446319 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  24"
+Time difference of 4.456404 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  41"
+Time difference of 4.460302 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  40"
+Time difference of 4.465295 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  10"
+Time difference of 4.480834 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  6"
+Time difference of 4.492785 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  1"
+Time difference of 4.509572 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  55"
+Time difference of 4.510291 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  31"
+Time difference of 4.513007 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  37"
+Time difference of 4.515708 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  45"
+Time difference of 4.568178 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  15"
+Time difference of 4.604321 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  52"
+Time difference of 4.613102 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  9"
+Time difference of 4.613337 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  54"
+Time difference of 4.621547 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  12"
+Time difference of 4.622029 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  13"
+Time difference of 4.658421 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  16"
+Time difference of 4.659842 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  22"
+Time difference of 4.662693 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  47"
+Time difference of 4.674685 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  2"
+Time difference of 4.701844 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  50"
+Time difference of 4.727497 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  27"
+Time difference of 4.733238 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  29"
+Time difference of 4.733406 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  43"
+Time difference of 4.756243 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  14"
+Time difference of 4.764738 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  34"
+Time difference of 4.767923 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  3"
+Time difference of 4.772587 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  19"
+Time difference of 4.783602 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  35"
+Time difference of 4.816099 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  5"
+Time difference of 4.825251 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  44"
+Time difference of 4.834013 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  53"
+Time difference of 4.848083 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  18"
+Time difference of 4.850124 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  4"
+Time difference of 4.851825 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  28"
+Time difference of 4.853266 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  33"
+Time difference of 4.861652 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  39"
+Time difference of 4.868666 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  38"
+Time difference of 4.869312 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  51"
+Time difference of 4.874044 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  21"
+Time difference of 4.877676 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  36"
+Time difference of 4.878366 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  42"
+Time difference of 4.884497 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  25"
+Time difference of 4.88821 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  49"
+Time difference of 4.893428 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  7"
+Time difference of 4.915678 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  8"
+Time difference of 4.936721 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  20"
+Time difference of 4.972947 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  17"
+Time difference of 4.997129 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  56"
+Time difference of 2.228145 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  58"
+Time difference of 2.066754 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  59"
+Time difference of 2.09846 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  57"
+Time difference of 2.163899 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  60"
+Time difference of 2.200212 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  61"
+Time difference of 2.216194 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 2 , with id  62"
+Time difference of 2.330767 hours
+[1] ""
+[1] ""
+[1] "All computations done for cell  2"
+[1] "All computations for cell  2  have been saved.s"
+[1] "Computation done for cell : 6 , with id  47"
+Time difference of 4.050769 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  48"
+Time difference of 4.206961 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  15"
+Time difference of 4.277534 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  1"
+Time difference of 4.32274 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  13"
+Time difference of 4.342161 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  55"
+Time difference of 4.385837 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  54"
+Time difference of 4.392628 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  4"
+Time difference of 4.397361 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  32"
+Time difference of 4.42635 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  37"
+Time difference of 4.439463 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  23"
+Time difference of 4.455618 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  30"
+Time difference of 4.472987 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  26"
+Time difference of 4.47862 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  46"
+Time difference of 4.510542 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  38"
+Time difference of 4.532052 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  53"
+Time difference of 4.53832 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  39"
+Time difference of 4.542039 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  29"
+Time difference of 4.546265 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  45"
+Time difference of 4.548187 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  24"
+Time difference of 4.56969 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  41"
+Time difference of 4.57009 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  42"
+Time difference of 4.571793 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  8"
+Time difference of 4.582737 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  7"
+Time difference of 4.597581 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  40"
+Time difference of 4.614248 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  9"
+Time difference of 4.619078 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  19"
+Time difference of 4.649212 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  22"
+Time difference of 4.670888 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  51"
+Time difference of 4.714012 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  44"
+Time difference of 4.73794 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  3"
+Time difference of 4.754128 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  2"
+Time difference of 4.760737 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  10"
+Time difference of 4.833715 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  35"
+Time difference of 4.851044 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  34"
+Time difference of 4.852158 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  17"
+Time difference of 4.857392 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  25"
+Time difference of 4.860925 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  49"
+Time difference of 4.86116 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  36"
+Time difference of 4.869978 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  20"
+Time difference of 4.87687 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  43"
+Time difference of 4.882664 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  12"
+Time difference of 4.890628 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  5"
+Time difference of 4.898 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  14"
+Time difference of 4.916138 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  50"
+Time difference of 4.920863 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  18"
+Time difference of 4.934041 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  28"
+Time difference of 4.935566 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  31"
+Time difference of 4.950514 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  52"
+Time difference of 4.952451 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  27"
+Time difference of 4.979258 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  16"
+Time difference of 4.990593 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  6"
+Time difference of 5.01253 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  21"
+Time difference of 5.019412 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  33"
+Time difference of 5.132631 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  11"
+Time difference of 5.23441 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  56"
+Time difference of 2.213099 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  57"
+Time difference of 2.059032 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  60"
+Time difference of 2.050474 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  58"
+Time difference of 2.154384 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  61"
+Time difference of 2.080892 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  62"
+Time difference of 2.074565 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 6 , with id  59"
+Time difference of 2.148472 hours
+[1] ""
+[1] ""
+[1] "All computations done for cell  6"
+[1] "All computations for cell  6  have been saved.s"
+[1] "Computation done for cell : 8 , with id  53"
+Time difference of 2.560841 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  41"
+Time difference of 2.562164 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  15"
+Time difference of 2.5882 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  36"
+Time difference of 2.588974 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  37"
+Time difference of 2.596407 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  13"
+Time difference of 2.601221 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  49"
+Time difference of 2.603521 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  30"
+Time difference of 2.610941 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  32"
+Time difference of 2.614012 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  3"
+Time difference of 2.631789 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  46"
+Time difference of 2.633658 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  26"
+Time difference of 2.644243 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  33"
+Time difference of 2.646823 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  44"
+Time difference of 2.650463 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  19"
+Time difference of 2.655739 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  2"
+Time difference of 2.657422 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  17"
+Time difference of 2.665369 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  54"
+Time difference of 2.665659 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  35"
+Time difference of 2.672081 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  29"
+Time difference of 2.67584 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  5"
+Time difference of 2.677825 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  47"
+Time difference of 2.678845 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  42"
+Time difference of 2.683577 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  48"
+Time difference of 2.68447 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  45"
+Time difference of 2.68718 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  18"
+Time difference of 2.701196 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  22"
+Time difference of 2.704778 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  21"
+Time difference of 2.70566 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  10"
+Time difference of 2.70583 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  55"
+Time difference of 2.706025 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  25"
+Time difference of 2.706447 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  31"
+Time difference of 2.706534 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  50"
+Time difference of 2.70684 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  24"
+Time difference of 2.707599 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  40"
+Time difference of 2.712141 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  27"
+Time difference of 2.713829 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  43"
+Time difference of 2.714794 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  8"
+Time difference of 2.716661 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  11"
+Time difference of 2.719409 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  7"
+Time difference of 2.720742 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  52"
+Time difference of 2.724333 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  6"
+Time difference of 2.725111 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  34"
+Time difference of 2.725456 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  38"
+Time difference of 2.726623 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  28"
+Time difference of 2.726676 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  39"
+Time difference of 2.730228 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  16"
+Time difference of 2.736329 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  20"
+Time difference of 2.740145 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  9"
+Time difference of 2.74509 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  12"
+Time difference of 2.750544 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  1"
+Time difference of 2.756749 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  14"
+Time difference of 2.769848 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  23"
+Time difference of 2.770842 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  4"
+Time difference of 2.797648 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  51"
+Time difference of 2.844831 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  56"
+Time difference of 2.020754 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  57"
+Time difference of 2.050171 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  59"
+Time difference of 2.028928 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  61"
+Time difference of 2.027044 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  62"
+Time difference of 2.068485 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  58"
+Time difference of 2.085723 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 8 , with id  60"
+Time difference of 2.100211 hours
+[1] ""
+[1] ""
+[1] "All computations done for cell  8"
+[1] "All computations for cell  8  have been saved.s"
+[1] "Computation done for cell : 9 , with id  30"
+Time difference of 2.499751 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  51"
+Time difference of 2.527673 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  4"
+Time difference of 2.543893 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  53"
+Time difference of 2.547567 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  34"
+Time difference of 2.558229 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  32"
+Time difference of 2.579974 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  46"
+Time difference of 2.599848 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  50"
+Time difference of 2.611598 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  44"
+Time difference of 2.614956 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  5"
+Time difference of 2.618828 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  6"
+Time difference of 2.619566 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  17"
+Time difference of 2.622037 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  35"
+Time difference of 2.633168 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  52"
+Time difference of 2.64181 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  37"
+Time difference of 2.648509 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  13"
+Time difference of 2.649665 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  15"
+Time difference of 2.652912 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  26"
+Time difference of 2.653035 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  11"
+Time difference of 2.65547 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  49"
+Time difference of 2.65621 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  36"
+Time difference of 2.656871 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  7"
+Time difference of 2.66182 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  41"
+Time difference of 2.663388 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  19"
+Time difference of 2.665396 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  28"
+Time difference of 2.665686 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  29"
+Time difference of 2.679819 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  3"
+Time difference of 2.68465 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  2"
+Time difference of 2.694203 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  12"
+Time difference of 2.6962 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  43"
+Time difference of 2.704748 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  22"
+Time difference of 2.70673 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  47"
+Time difference of 2.712947 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  20"
+Time difference of 2.720754 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  24"
+Time difference of 2.725299 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  54"
+Time difference of 2.728338 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  9"
+Time difference of 2.732967 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  27"
+Time difference of 2.73304 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  16"
+Time difference of 2.754525 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  48"
+Time difference of 2.755345 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  33"
+Time difference of 2.755672 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  38"
+Time difference of 2.758622 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  18"
+Time difference of 2.765876 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  14"
+Time difference of 2.767005 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  55"
+Time difference of 2.769976 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  45"
+Time difference of 2.787128 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  31"
+Time difference of 2.789907 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  39"
+Time difference of 2.790797 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  1"
+Time difference of 2.791297 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  8"
+Time difference of 2.797707 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  21"
+Time difference of 2.806048 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  25"
+Time difference of 2.81525 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  23"
+Time difference of 2.816252 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  42"
+Time difference of 2.832337 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  10"
+Time difference of 2.844323 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  40"
+Time difference of 2.889172 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  59"
+Time difference of 1.909754 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  60"
+Time difference of 1.989604 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  56"
+Time difference of 2.077991 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  58"
+Time difference of 2.075929 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  62"
+Time difference of 2.035834 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  61"
+Time difference of 2.112205 hours
+[1] ""
+[1] ""
+[1] "Computation done for cell : 9 , with id  57"
+Time difference of 2.189617 hours
+[1] ""
+[1] ""
+[1] "All computations done for cell  9"
+[1] "All computations for cell  9  have been saved.s"
+> parallel::stopCluster(cl = my.cluster)
+> 
+> 
